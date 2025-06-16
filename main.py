@@ -1,8 +1,8 @@
 import uvicorn
-from fastapi import FastAPI, Body
+from fastapi import FastAPI
 from retrieval import Retrieval
 from pydantic import BaseModel
-
+from generation.generation import Generation
 app = FastAPI()
 
 retriever = Retrieval(
@@ -11,7 +11,7 @@ retriever = Retrieval(
     vector_db_address="./vector_db"
 )
 
-
+generator = Generation("meta-llama/Llama-3.3-70B-Instruct-Turbo-Free")
 class RetrieveRequest(BaseModel):
     query: str
     top_k: int = 3
@@ -21,14 +21,19 @@ def retrieve(request: RetrieveRequest):
     results = retriever(request.query, n_returned_docs=request.top_k)
     return {"chunks": results}
 
-# @app.post("/generate")
-# def generate(request: QueryRequest):
-#     try:
-#         # TODO: Instantiate and run the generator
-#         response = "This is a test response"
-#         return {"query": request.query, "response": response}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
+class QueryRequest(BaseModel):
+    query: str
+    top_k: int = 5
+@app.post("/generate")
+def generate(request: QueryRequest):
+    chunks = retriever(request.query, n_returned_docs=5)
+    filtered_chunks = [chunk for chunk in chunks["results"] if chunk["score"] > 0.5]
+
+    context_text = " ".join([chunk["content"] for chunk in filtered_chunks])
+
+    response = generator(prompt=f"Context: {context_text}\nQuestion: {chunks['query']}")
+
+    return {"query": request.query, "response": response}
 
 
 if __name__ == "__main__":
