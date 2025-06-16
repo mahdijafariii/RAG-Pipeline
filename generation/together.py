@@ -1,11 +1,17 @@
 import os
-
+from dotenv import load_dotenv
 from together import Together
+
+load_dotenv()
 
 class TogetherModel:
     def __init__(self, model_name, api_key=None):
         self.model_name = model_name
-        self.api_key = os.getenv("TOGETHER_API_KEY")
+        self.api_key = api_key or os.getenv("TOGETHER_API_KEY")
+        print(api_key)
+        if not self.api_key:
+            raise ValueError(
+                "API key is required for TogetherModel. Set it via argument or TOGETHER_API_KEY environment variable.")
         self.chat_history = []
         self.client = Together(api_key=api_key) if api_key else Together()
 

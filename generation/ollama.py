@@ -1,5 +1,5 @@
-from ollama import chat
-from ollama import ChatResponse
+from ollama import ChatResponse, chat
+
 
 class OllamaModel:
     def __init__(self, model_name):
