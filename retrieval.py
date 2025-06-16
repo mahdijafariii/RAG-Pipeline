@@ -1,5 +1,5 @@
 from datetime import datetime
-
+import numpy as np
 from langchain_community.document_loaders import TextLoader
 from langchain_community.vectorstores import FAISS as LangchainFAISS
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -39,6 +39,8 @@ def normalize_date(date_str: str) -> str | None:
         return date_str
 
     return None
+
+
 def attach_metadata(text: str, title: str = None, date: str = None, category: str = None) -> dict:
     metadata = {}
     if title:
@@ -65,7 +67,11 @@ def get_directory_documents(path: str):
         raise ValueError(f'path : {path} does not contain any text files')
 
     documents = []
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=750,
+        chunk_overlap=100,
+        separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
+    )
 
     for file in readme_files_names:
         loader = TextLoader(os.path.join(path, file), encoding='utf-8')
@@ -94,6 +100,27 @@ def get_directory_documents(path: str):
     return documents
 
 
+# کلاس برای نرمال کردن embedding ها (برای cosine similarity)
+class NormalizedHuggingFaceEmbeddings(HuggingFaceEmbeddings):
+    def embed_query(self, text: str) -> list[float]:
+        vec = super().embed_query(text)
+        norm = np.linalg.norm(vec)
+        if norm == 0:
+            return vec
+        return (np.array(vec) / norm).tolist()
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors = super().embed_documents(texts)
+        normalized_vectors = []
+        for vec in vectors:
+            norm = np.linalg.norm(vec)
+            if norm == 0:
+                normalized_vectors.append(vec)
+            else:
+                normalized_vectors.append((np.array(vec) / norm).tolist())
+        return normalized_vectors
+
+
 class Retrieval:
 
     def __init__(self,
@@ -104,10 +131,11 @@ class Retrieval:
         self.db_address = vector_db_address
         self.documents_address = documents_address
 
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=embedding_model_name)
+        self.embeddings = NormalizedHuggingFaceEmbeddings(
+            model_name=embedding_model_name
+        )
 
-        if os.path.exists(self.db_address):
+        if self.db_address and os.path.exists(self.db_address):
             print('>> HINT : loading documents embeddings ...')
 
             self.db = LangchainFAISS.load_local(
@@ -118,7 +146,7 @@ class Retrieval:
         else:
 
             print('>> HINT : embedding documents started ...')
-            index = faiss.IndexFlatL2(len(self.embeddings.embed_query("hello world")))
+            index = faiss.IndexFlatIP(len(self.embeddings.embed_query("hello world")))
 
             self.db = LangchainFAISS(
                 embedding_function=self.embeddings,
@@ -133,7 +161,8 @@ class Retrieval:
 
             self.db.add_documents(documents=documents, uuids=uuids)
 
-            self.db.save_local(self.db_address)
+            if self.db_address:
+                self.db.save_local(self.db_address)
 
     def get_docs(self, path: str):
         return get_directory_documents(path)
@@ -142,10 +171,22 @@ class Retrieval:
                  inp_text,
                  n_returned_docs=3):
 
-        contexts = self.db.similarity_search(inp_text, k=n_returned_docs)
-        outputs = [context.page_content for context in contexts]
+        results_with_scores = self.db.similarity_search_with_score(inp_text, k=n_returned_docs)
 
-        return outputs
+        outputs = []
+        for i, (doc, score) in enumerate(results_with_scores, start=1):
+            chunk_data = {
+                "chunk_number": i,
+                "content": doc.page_content,
+                "score": float(score),
+                "metadata": doc.metadata,
+            }
+            outputs.append(chunk_data)
+
+        return {
+            "query": inp_text,
+            "results": outputs
+        }
 
     def add_document(self):
         raise NotImplementedError
