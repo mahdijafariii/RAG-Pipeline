@@ -78,29 +78,24 @@ def get_directory_documents(path: str):
         docs = loader.load()
 
         for doc in docs:
-            # پاک‌سازی متن
             cleaned_text = clean_text(doc.page_content)
 
-            # استخراج اطلاعات از نام فایل (مثلاً title و تاریخ)
             filename_parts = file.replace(".txt", "").split("_")
             title = filename_parts[0] if len(filename_parts) > 0 else None
             raw_date = filename_parts[1] if len(filename_parts) > 1 else None
             normalized = normalize_date(raw_date) if raw_date else None
 
-            # افزودن متادیتا
             meta_doc = attach_metadata(cleaned_text, title=title, date=normalized)
 
-            # تبدیل به Document برای LangChain
             document = Document(page_content=meta_doc["text"], metadata=meta_doc["metadata"])
 
-            # چانک کردن
             chunks = text_splitter.split_documents([document])
             documents.extend(chunks)
 
     return documents
 
 
-# کلاس برای نرمال کردن embedding ها (برای cosine similarity)
+# normalize vectors for cosine similarity
 class NormalizedHuggingFaceEmbeddings(HuggingFaceEmbeddings):
     def embed_query(self, text: str) -> list[float]:
         vec = super().embed_query(text)
